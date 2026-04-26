@@ -1,0 +1,20 @@
+{
+  "brightness": 80,
+  "night_mode": {
+    "enabled": true,
+    "start": "23:00",
+    "end": "08:00",
+    "message": "Good night ❤️",
+    "brightness": 10
+  },
+  "weather": {
+    "lat": 47.37,
+    "lon": 8.54,
+    "unit": "celsius"
+  },
+  "frame": {
+    "interval_seconds": 30,
+    "shuffle": true
+  },
+  "last_mode": "menu"
+}
