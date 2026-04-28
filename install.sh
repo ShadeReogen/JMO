@@ -44,6 +44,7 @@ mkdir -p "$SCRIPT_DIR/assets/images"
 mkdir -p "$SCRIPT_DIR/assets/fonts"
 mkdir -p "$SCRIPT_DIR/assets/icons"
 mkdir -p "$SCRIPT_DIR/logs"
+sudo chown -R "$USER:$USER" "$SCRIPT_DIR/logs"
 
 # ── systemd service ───────────────────────────────────────────────────
 echo "[5/5] Installing systemd service…"

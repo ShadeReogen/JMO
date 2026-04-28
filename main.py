@@ -19,19 +19,25 @@ import time
 import logging
 
 _LOG_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_FILE = os.path.join(_LOG_DIR, "piframe.log")
+
+_handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    os.makedirs(_LOG_DIR, exist_ok=True)
+    _handlers.append(logging.FileHandler(_LOG_FILE))
+except OSError as _e:
+    pass  # log dir not writable; stdout only
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(_LOG_FILE),
-    ],
+    handlers=_handlers,
 )
 logger = logging.getLogger("main")
-logger.info(f"Logging to {_LOG_FILE}")
+if len(_handlers) > 1:
+    logger.info(f"Logging to {_LOG_FILE}")
+else:
+    logger.warning(f"Cannot write log file ({_LOG_FILE}); stdout only")
 
 from core.display   import Display
 from core.buttons   import Buttons
