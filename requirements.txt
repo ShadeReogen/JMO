@@ -1,6 +1,0 @@
-displayhatmini
-st7789
-pillow
-gpiozero
-RPi.GPIO
-requests
