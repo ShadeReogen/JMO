@@ -44,6 +44,7 @@ mkdir -p "$SCRIPT_DIR/assets/images"
 mkdir -p "$SCRIPT_DIR/assets/fonts"
 mkdir -p "$SCRIPT_DIR/assets/icons"
 mkdir -p "$SCRIPT_DIR/logs"
+touch "$SCRIPT_DIR/logs/piframe.log"
 sudo chown -R "$USER:$USER" "$SCRIPT_DIR/logs"
 
 # ── systemd service ───────────────────────────────────────────────────
@@ -62,7 +63,6 @@ Restart=always
 RestartSec=5
 User=$USER
 Environment=PYTHONUNBUFFERED=1
-StandardOutput=append:$SCRIPT_DIR/logs/piframe.log
 StandardError=append:$SCRIPT_DIR/logs/piframe.log
 
 [Install]

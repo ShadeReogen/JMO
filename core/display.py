@@ -5,10 +5,13 @@ Abstraction layer over the DisplayHATMini + ST7789.
 All rendering goes through here — no other module touches the hardware directly.
 """
 
+import logging
 import os
 import threading
 from PIL import Image
 from displayhatmini import DisplayHATMini
+
+logger = logging.getLogger(__name__)
 
 WIDTH  = DisplayHATMini.WIDTH   # 320
 HEIGHT = DisplayHATMini.HEIGHT  # 240
@@ -42,9 +45,12 @@ class Display:
             image = image.resize((WIDTH, HEIGHT))
         if image.mode != "RGB":
             image = image.convert("RGB")
-        with self._lock:
-            self._dhm.buffer = image
-            self._dhm.display()
+        try:
+            with self._lock:
+                self._dhm.buffer = image
+                self._dhm.display()
+        except Exception:
+            logger.exception("display.show() failed")
 
     def set_brightness(self, percent: int):
         """Set backlight brightness 0–100."""
