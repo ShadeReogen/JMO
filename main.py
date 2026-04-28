@@ -12,16 +12,26 @@ Responsibilities:
   - Handle clean shutdown on SIGINT / SIGTERM
 """
 
+import os
 import signal
 import sys
 import time
 import logging
 
+_LOG_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_LOG_FILE = os.path.join(_LOG_DIR, "piframe.log")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(_LOG_FILE),
+    ],
 )
 logger = logging.getLogger("main")
+logger.info(f"Logging to {_LOG_FILE}")
 
 from core.display   import Display
 from core.buttons   import Buttons

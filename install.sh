@@ -38,11 +38,12 @@ else
     echo "  → SPI already enabled"
 fi
 
-# ── Create assets directories ─────────────────────────────────────────
-echo "[4/5] Creating asset directories…"
+# ── Create asset and log directories ─────────────────────────────────
+echo "[4/5] Creating asset and log directories…"
 mkdir -p "$SCRIPT_DIR/assets/images"
 mkdir -p "$SCRIPT_DIR/assets/fonts"
 mkdir -p "$SCRIPT_DIR/assets/icons"
+mkdir -p "$SCRIPT_DIR/logs"
 
 # ── systemd service ───────────────────────────────────────────────────
 echo "[5/5] Installing systemd service…"
@@ -60,6 +61,8 @@ Restart=always
 RestartSec=5
 User=$USER
 Environment=PYTHONUNBUFFERED=1
+StandardOutput=append:$SCRIPT_DIR/logs/piframe.log
+StandardError=append:$SCRIPT_DIR/logs/piframe.log
 
 [Install]
 WantedBy=multi-user.target
@@ -67,14 +70,14 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable piframe
-sudo systemctl start piframe
 
 echo ""
 echo "============================================"
 echo "  Installation complete!"
-echo "  Service: sudo systemctl status piframe"
-echo "  Logs:    journalctl -u piframe -f"
+echo "  Logs: $SCRIPT_DIR/logs/piframe.log"
 echo ""
-echo "  ⚠  A reboot is recommended if SPI was"
-echo "     just enabled for the first time."
+echo "  Rebooting in 5 seconds to apply SPI…"
+echo "  (Ctrl+C to cancel)"
 echo "============================================"
+sleep 5
+sudo reboot

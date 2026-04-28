@@ -8,7 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "[update] Pulling latest code…"
 cd "$SCRIPT_DIR"
-git pull origin main
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "[update] Branch: $BRANCH"
+git pull origin "$BRANCH"
 
 echo "[update] Restarting piframe service…"
 sudo systemctl restart piframe
