@@ -66,21 +66,3 @@ class MenuScreen:
             self.draw._image.paste(self._bg, (0, 0))
         else:
             self.draw.rectangle((0, 0, w, h), fill=(20, 20, 30))
-
-        # Bottom hint bar
-        bar_h = 28
-        self.draw.rectangle((0, h - bar_h, w, h), fill=(0, 0, 0))
-
-        hints = "A · B · X · Y  →  choose mode"
-        try:
-            bb = self.draw.textbbox((0, 0), hints, font=self._font)
-            tw = bb[2] - bb[0]
-        except AttributeError:
-            tw, _ = self.draw.textsize(hints, font=self._font)
-
-        self.draw.text(
-            ((w - tw) // 2, h - bar_h + 7),
-            hints,
-            font=self._font,
-            fill=(180, 180, 180),
-        )
