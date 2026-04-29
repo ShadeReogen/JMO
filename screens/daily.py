@@ -25,28 +25,23 @@ BUTTON_NAMES = {
     DisplayHATMini.BUTTON_Y: "Y",
 }
 
-# Palette
-BG_TOP  = (13,  17,  46)   # deep indigo
-BG_BOT  = ( 7,   9,  22)   # near-black
-WHITE   = (255, 255, 255)
-MUTED   = ( 98, 116, 168)   # slate-blue secondary
-SEP     = ( 28,  36,  68)   # barely-visible divider
-NOTE_C  = (162, 175, 212)   # note text
+# Outer background
+OUTER_BG  = (10,  12,  26)
 
-ICON_SIZE = (80, 80)
+# Card gradient: left edge → right edge
+CARD_L    = (68, 122, 248)
+CARD_R    = (40,  82, 220)
 
-# WMO code → asset name (day / night variants)
-def _icon_name(code, hour):
-    night = not (6 <= hour < 20)
-    if code == 0:   return "clear_night" if night else "sunny"
-    if code <= 2:   return "partly_night" if night else "partly"
-    if code == 3:   return "partly_night" if night else "partly"
-    if code <= 48:  return "foggy"
-    if code <= 65:  return "rainy"
-    if code <= 77:  return "snowy"
-    if code <= 82:  return "rainy"
-    if code <= 94:  return "snowy"
-    return                  "thunder"
+# Text
+WHITE     = (255, 255, 255)
+DIM_WHITE = (200, 215, 255)   # secondary text on card
+
+ICON_W, ICON_H = 88, 88
+
+# Padding from screen edges
+CARD_X    = 14
+CARD_Y    = 34    # card top — icon bleeds above this
+
 
 def _wmo_label(code):
     if code == 0:   return "Clear"
@@ -54,11 +49,30 @@ def _wmo_label(code):
     if code == 3:   return "Overcast"
     if code <= 48:  return "Foggy"
     if code <= 55:  return "Drizzle"
-    if code <= 65:  return "Rain"
-    if code <= 77:  return "Snow"
+    if code <= 65:  return "Rainy"
+    if code <= 77:  return "Snowy"
     if code <= 82:  return "Showers"
     if code <= 94:  return "Snow showers"
     return                  "Thunderstorm"
+
+
+def _icon_name(code, hour):
+    night = not (6 <= hour < 20)
+    if code == 0:   return "clear_night" if night else "sunny"
+    if code <= 3:   return "partly_night" if night else "partly"
+    if code <= 48:  return "foggy"
+    if code <= 65:  return "rainy"
+    if code <= 77:  return "snowy"
+    if code <= 82:  return "rainy"
+    if code <= 94:  return "snowy"
+    return                  "thunder"
+
+
+def _resize(img, size):
+    try:
+        return img.resize(size, Image.LANCZOS)
+    except AttributeError:
+        return img.resize(size, Image.ANTIALIAS)
 
 
 class DailyScreen:
@@ -81,15 +95,13 @@ class DailyScreen:
         self._fetching = False
         self._last_fetch = 0.0
 
-        self._f_date = self._font(10)
-        self._f_time = self._font_bold(50)
-        self._f_temp = self._font_bold(34)
-        self._f_unit = self._font(17)
-        self._f_cond = self._font(12)
-        self._f_note = self._font(11)
+        self._f_temp  = self._font_bold(52)
+        self._f_cond  = self._font_bold(16)
+        self._f_dt    = self._font(11)
+        self._f_note  = self._font(11)
 
-        self._bg    = self._make_gradient()
-        self._icons = self._load_icons()
+        self._icons   = self._load_icons()
+        self._card_bg = self._make_card()   # pre-baked gradient rounded rect
 
         self._trigger_fetch()
 
@@ -138,16 +150,36 @@ class DailyScreen:
                 continue
         return self._font(size)
 
-    def _make_gradient(self):
-        img = Image.new("RGB", (self.width, self.height))
-        d   = ImageDraw.Draw(img)
-        for y in range(self.height):
-            t = y / (self.height - 1)
-            r = int(BG_TOP[0] + t * (BG_BOT[0] - BG_TOP[0]))
-            g = int(BG_TOP[1] + t * (BG_BOT[1] - BG_TOP[1]))
-            b = int(BG_TOP[2] + t * (BG_BOT[2] - BG_TOP[2]))
-            d.line((0, y, self.width, y), fill=(r, g, b))
-        return img
+    def _make_card(self):
+        """Pre-bake a gradient rounded-rect card as an RGBA image."""
+        NOTE_H  = 34 if self._note else 0
+        card_w  = self.width  - CARD_X * 2
+        card_h  = self.height - CARD_Y - 10 - NOTE_H
+
+        card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+        cd   = ImageDraw.Draw(card)
+
+        # Horizontal gradient
+        for px in range(card_w):
+            t = px / max(card_w - 1, 1)
+            r = int(CARD_L[0] + t * (CARD_R[0] - CARD_L[0]))
+            g = int(CARD_L[1] + t * (CARD_R[1] - CARD_L[1]))
+            b = int(CARD_L[2] + t * (CARD_R[2] - CARD_L[2]))
+            cd.line([(px, 0), (px, card_h)], fill=(r, g, b, 255))
+
+        # Rounded mask
+        mask = Image.new("L", (card_w, card_h), 0)
+        md   = ImageDraw.Draw(mask)
+        try:
+            md.rounded_rectangle([(0, 0), (card_w - 1, card_h - 1)],
+                                  radius=18, fill=255)
+        except AttributeError:
+            md.rectangle([(0, 0), (card_w - 1, card_h - 1)], fill=255)
+        card.putalpha(mask)
+
+        self._card_w = card_w
+        self._card_h = card_h
+        return card
 
     def _load_icons(self):
         names = ["sunny", "clear_night", "partly", "partly_night",
@@ -156,7 +188,7 @@ class DailyScreen:
         for name in names:
             try:
                 img = Image.open(f"assets/weather/{name}.png").convert("RGBA")
-                icons[name] = img.resize(ICON_SIZE, Image.LANCZOS)
+                icons[name] = _resize(img, (ICON_W, ICON_H))
             except Exception as e:
                 print(f"[Daily] Icon '{name}' not loaded: {e}")
         return icons
@@ -206,7 +238,7 @@ class DailyScreen:
         if name == "Y":
             self.on_done()
 
-    # ── Rendering ─────────────────────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _tw(self, text, font):
         try:
@@ -224,72 +256,69 @@ class DailyScreen:
             _, h = self.draw.textsize("0", font=font)
             return h
 
+    # ── Render ────────────────────────────────────────────────────────────────
+
     def render(self):
         w, h   = self.width, self.height
         d, now = self.draw, datetime.now()
-        MX     = 16   # left margin
-
-        # ── Background gradient ───────────────────────────────────────────────
-        self.draw._image.paste(self._bg, (0, 0))
+        buf    = self.draw._image
 
         with self._wlock:
             code, temp = self._wcode, self._wtemp
 
-        has_note  = bool(self._note)
-        NOTE_ZONE = 36   # pixels reserved at bottom when note exists
+        # ── Outer background ──────────────────────────────────────────────────
+        d.rectangle((0, 0, w, h), fill=OUTER_BG)
 
-        # ── Date header ───────────────────────────────────────────────────────
-        date_str = now.strftime("%A · %-d %B")
-        d.text((MX, 10), date_str, font=self._f_date, fill=MUTED)
+        # ── Card ──────────────────────────────────────────────────────────────
+        buf.paste(self._card_bg, (CARD_X, CARD_Y), self._card_bg)
 
-        # ── Time (hero) ───────────────────────────────────────────────────────
-        time_str = now.strftime("%H:%M")
-        TIME_Y   = 22
-        d.text((MX, TIME_Y), time_str, font=self._f_time, fill=WHITE)
-        time_h = self._th(self._f_time)
+        card_cy = CARD_Y + self._card_h // 2
 
-        # ── Weather icon (right, vertically centred in upper ~60% of screen) ──
-        upper_h  = h - NOTE_ZONE if has_note else h
-        icon_y   = max(14, (upper_h - ICON_SIZE[1]) // 2 - 8)
-        icon_x   = w - ICON_SIZE[0] - 14
+        # ── Icon (bleeds above card, anchored to top-left) ────────────────────
+        ICON_X = CARD_X + 6
+        ICON_Y = CARD_Y - 22   # sticks 22 px above card top
 
         if code is not None:
             name = _icon_name(code, now.hour)
             icon = self._icons.get(name)
             if icon:
-                self.draw._image.paste(icon, (icon_x, icon_y), icon)
+                buf.paste(icon, (ICON_X, ICON_Y), icon)
 
-        # ── Temperature ───────────────────────────────────────────────────────
-        TEMP_Y  = TIME_Y + time_h + 14
+        # ── Temperature — vertically centred in card ──────────────────────────
         unit    = self._config.get("weather", {}).get("unit", "celsius")
-        unit_ch = "C" if unit == "celsius" else "F"
+        unit_ch = "°C" if unit == "celsius" else "°F"
+
+        TEMP_X  = CARD_X + ICON_W + 18   # right of icon + gap
+        temp_h  = self._th(self._f_temp)
+        temp_y  = card_cy - temp_h // 2
 
         if temp is not None:
-            num_str = f"{temp:.0f}°"
-            d.text((MX, TEMP_Y), num_str, font=self._f_temp, fill=WHITE)
-            nw = self._tw(num_str, self._f_temp)
-            # Smaller unit char, top-aligned with number
-            d.text((MX + nw + 2, TEMP_Y + 4), unit_ch,
-                   font=self._f_unit, fill=MUTED)
-            cond_y = TEMP_Y + self._th(self._f_temp) + 6
+            temp_str = f"{temp:.0f}{unit_ch}"
         else:
-            d.text((MX, TEMP_Y + 8), "—", font=self._f_temp, fill=MUTED)
-            cond_y = TEMP_Y + 42
+            temp_str = "—"
 
-        # ── Condition label ───────────────────────────────────────────────────
-        if code is not None:
-            d.text((MX, cond_y), _wmo_label(code), font=self._f_cond, fill=MUTED)
-        elif temp is None:
-            d.text((MX, cond_y), "Fetching weather…", font=self._f_cond, fill=MUTED)
+        d.text((TEMP_X, temp_y), temp_str, font=self._f_temp, fill=WHITE)
+        temp_right = TEMP_X + self._tw(temp_str, self._f_temp)
 
-        # ── Note ─────────────────────────────────────────────────────────────
-        if has_note:
-            sep_y  = h - NOTE_ZONE
-            note_h = self._th(self._f_note)
-            note_y = sep_y + (NOTE_ZONE - note_h) // 2
+        # ── Right column: condition + date/time ───────────────────────────────
+        # Gap between temp text and right column
+        RIGHT_X = max(temp_right + 14, CARD_X + self._card_w - 114)
 
-            d.line((MX, sep_y, w - MX, sep_y), fill=SEP, width=1)
+        # Condition
+        cond_str = _wmo_label(code) if code is not None else "Loading…"
+        cond_y   = card_cy - 22
+        d.text((RIGHT_X, cond_y), cond_str, font=self._f_cond, fill=WHITE)
 
-            nw = self._tw(self._note, self._f_note)
-            d.text((max(MX, (w - nw) // 2), note_y),
-                   self._note, font=self._f_note, fill=NOTE_C)
+        # Date + time, two lines
+        date_str = now.strftime("%a. %-d. %b.")
+        time_str = now.strftime("%H:%M")
+        dt_y     = cond_y + self._th(self._f_cond) + 8
+        d.text((RIGHT_X, dt_y),      date_str, font=self._f_dt, fill=DIM_WHITE)
+        d.text((RIGHT_X, dt_y + 14), time_str, font=self._f_dt, fill=DIM_WHITE)
+
+        # ── Note (below card, outer background area) ──────────────────────────
+        if self._note:
+            note_y = CARD_Y + self._card_h + 10
+            nw     = self._tw(self._note, self._f_note)
+            d.text((max(CARD_X, (w - nw) // 2), note_y),
+                   self._note, font=self._f_note, fill=DIM_WHITE)
