@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw
 from displayhatmini import DisplayHATMini
 from screens.splash import SplashScreen
 from screens.menu import MenuScreen
+from screens.settings import SettingsScreen
 
 # --- Display setup ---
 width = DisplayHATMini.WIDTH
@@ -25,9 +26,11 @@ def set_screen(screen):
 
 
 def main():
-    # Start with splash, pass a callback to transition to menu
     def go_to_menu():
-        set_screen(MenuScreen(draw, width, height, display))
+        set_screen(MenuScreen(draw, width, height, display, on_settings=go_to_settings))
+
+    def go_to_settings():
+        set_screen(SettingsScreen(draw, width, height, display, on_done=go_to_menu))
 
     set_screen(SplashScreen(draw, width, height, go_to_menu))
 

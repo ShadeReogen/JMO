@@ -9,8 +9,7 @@
   },
   "weather": {
     "lat": 47.37,
-    "lon": 8.54,
-    "unit": "celsius"
+    "lon": 8.54
   },
   "frame": {
     "interval_seconds": 30,
