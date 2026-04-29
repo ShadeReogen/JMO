@@ -1,16 +1,38 @@
 #!/usr/bin/env python3
+"""
+DailyScreen — redesigned for 320×240 Display HAT Mini.
+
+Layout (all values in px, origin top-left):
+  ┌─────────────────────────────────────────┐  y=0
+  │  TOP BAR  city · · · · · · · · time/date│  h=38
+  ├─────────────────────────────────────────┤  y=38
+  │                                         │
+  │   [ICON 72×72]   TEMP   condition       │  h=146
+  │                                         │
+  ├─────────────────────────────────────────┤  y=184
+  │  NOTE (italic, truncated)          [Y]  │  h=56
+  └─────────────────────────────────────────┘  y=240
+
+Nothing bleeds outside 320×240. Icon is always fully inside the middle zone.
+"""
+
 import json
 import time
 import threading
 import urllib.request
 from datetime import datetime
+
 from PIL import Image, ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
 
+# ── Paths ──────────────────────────────────────────────────────────────────────
 CONFIG_PATH    = "config.json"
 NOTES_PATH     = "notes.json"
-FETCH_INTERVAL = 600
 
+# ── Timing ─────────────────────────────────────────────────────────────────────
+FETCH_INTERVAL = 600          # seconds between weather refreshes
+
+# ── Weather API ────────────────────────────────────────────────────────────────
 WEATHER_URL = (
     "https://api.open-meteo.com/v1/forecast"
     "?latitude={lat}&longitude={lon}"
@@ -18,6 +40,7 @@ WEATHER_URL = (
     "&temperature_unit={unit}"
 )
 
+# ── Buttons ────────────────────────────────────────────────────────────────────
 BUTTON_NAMES = {
     DisplayHATMini.BUTTON_A: "A",
     DisplayHATMini.BUTTON_B: "B",
@@ -25,26 +48,44 @@ BUTTON_NAMES = {
     DisplayHATMini.BUTTON_Y: "Y",
 }
 
-# Outer background
-OUTER_BG  = (10,  12,  26)
+# ── Palette ────────────────────────────────────────────────────────────────────
+BG            = ( 11,  15,  28)   # deep navy
+DIVIDER       = ( 40,  46,  68)   # subtle separator
+WHITE         = (255, 255, 255)
+TEXT_PRIMARY  = (255, 255, 255)
+TEXT_DIM      = (140, 152, 190)   # secondary / muted blue-white
+TEXT_FAINT    = ( 82,  96, 130)   # very muted (unit symbol, hints)
+ACCENT        = (255, 209, 102)   # warm amber — used for icon tint fallback
 
-# Card gradient: left edge → right edge
-CARD_L    = (68, 122, 248)
-CARD_R    = (40,  82, 220)
+# ── Layout constants (all pixels) ─────────────────────────────────────────────
+W, H          = 320, 240
 
-# Text
-WHITE     = (255, 255, 255)
-DIM_WHITE = (200, 215, 255)   # secondary text on card
+TOP_H         = 38    # top bar height
+BTM_H         = 56    # bottom bar height
+MID_Y         = TOP_H                          #  38
+MID_H         = H - TOP_H - BTM_H             # 146
+MID_CY        = MID_Y + MID_H // 2            # vertical centre of middle zone
 
-ICON_W, ICON_H = 88, 88
+PAD_X         = 16    # horizontal padding from screen edges
 
-# Padding from screen edges
-CARD_X    = 14
-CARD_Y    = 34    # card top — icon bleeds above this
+ICON_SIZE     = 72    # rendered icon size (down-sampled from 512×512 source)
+ICON_X        = PAD_X
+ICON_Y        = MID_Y + (MID_H - ICON_SIZE) // 2   # vertically centred
+
+TEMP_X        = ICON_X + ICON_SIZE + 14       # left edge of temperature text
+
+# Font sizes
+FS_LABEL      = 11
+FS_TEMP       = 54    # large temperature numeral
+FS_UNIT       = 22    # °C / °F superscript
+FS_COND       = 13    # weather condition label
+FS_NOTE       = 11
 
 
-def _wmo_label(code):
-    if code == 0:   return "Clear"
+# ── Weather helpers ────────────────────────────────────────────────────────────
+
+def _wmo_label(code: int) -> str:
+    if code == 0:   return "Clear sky"
     if code <= 2:   return "Mostly clear"
     if code == 3:   return "Overcast"
     if code <= 48:  return "Foggy"
@@ -56,7 +97,7 @@ def _wmo_label(code):
     return                  "Thunderstorm"
 
 
-def _icon_name(code, hour):
+def _icon_name(code: int, hour: int) -> str:
     night = not (6 <= hour < 20)
     if code == 0:   return "clear_night" if night else "sunny"
     if code <= 3:   return "partly_night" if night else "partly"
@@ -68,16 +109,86 @@ def _icon_name(code, hour):
     return                  "thunder"
 
 
-def _resize(img, size):
+def _resize(img: Image.Image, size: tuple) -> Image.Image:
     try:
         return img.resize(size, Image.LANCZOS)
     except AttributeError:
         return img.resize(size, Image.ANTIALIAS)
 
 
+# ── Font helpers ───────────────────────────────────────────────────────────────
+
+_REGULAR_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+]
+_BOLD_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+]
+
+
+def _load_font(paths: list, size: int) -> ImageFont.ImageFont:
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+# ── Text measurement helpers ───────────────────────────────────────────────────
+
+def _tw(draw: ImageDraw.ImageDraw, text: str, font) -> int:
+    """Text width in pixels."""
+    try:
+        bb = draw.textbbox((0, 0), text, font=font)
+        return bb[2] - bb[0]
+    except AttributeError:
+        w, _ = draw.textsize(text, font=font)
+        return w
+
+
+def _th(draw: ImageDraw.ImageDraw, font) -> int:
+    """Approximate cap-height for vertical alignment."""
+    try:
+        bb = draw.textbbox((0, 0), "0", font=font)
+        return bb[3] - bb[1]
+    except AttributeError:
+        _, h = draw.textsize("0", font=font)
+        return h
+
+
+def _truncate(draw: ImageDraw.ImageDraw, text: str, font,
+              max_w: int) -> str:
+    """Truncate text with ellipsis so it fits within max_w pixels."""
+    if _tw(draw, text, font) <= max_w:
+        return text
+    while text:
+        text = text[:-1]
+        if _tw(draw, text + "…", font) <= max_w:
+            return text + "…"
+    return "…"
+
+
+# ── Main screen class ──────────────────────────────────────────────────────────
+
 class DailyScreen:
-    def __init__(self, draw: ImageDraw.ImageDraw, width: int, height: int,
-                 display: DisplayHATMini, on_done):
+    """
+    Renders a clean weather + date/time + daily note screen
+    strictly within 320×240 px.
+    """
+
+    def __init__(
+        self,
+        draw: ImageDraw.ImageDraw,
+        width: int,
+        height: int,
+        display: DisplayHATMini,
+        on_done,
+    ):
         self.draw    = draw
         self.width   = width
         self.height  = height
@@ -86,114 +197,69 @@ class DailyScreen:
 
         self._prev = {btn: False for btn in BUTTON_NAMES}
 
-        self._config = self._load_config()
-        self._note   = self._load_note()
+        # Config + note
+        self._config  = self._load_config()
+        self._note    = self._load_note()
 
-        self._wcode    = None
-        self._wtemp    = None
-        self._wlock    = threading.Lock()
-        self._fetching = False
+        # Weather state (thread-safe)
+        self._wcode      = None
+        self._wtemp      = None
+        self._wlock      = threading.Lock()
+        self._fetching   = False
         self._last_fetch = 0.0
 
-        self._f_temp  = self._font_bold(52)
-        self._f_cond  = self._font_bold(16)
-        self._f_dt    = self._font(11)
-        self._f_note  = self._font(11)
+        # Fonts
+        self._f_label = _load_font(_REGULAR_PATHS, FS_LABEL)
+        self._f_temp  = _load_font(_BOLD_PATHS,    FS_TEMP)
+        self._f_unit  = _load_font(_REGULAR_PATHS, FS_UNIT)
+        self._f_cond  = _load_font(_REGULAR_PATHS, FS_COND)
+        self._f_note  = _load_font(_REGULAR_PATHS, FS_NOTE)
 
-        self._icons   = self._load_icons()
-        self._card_bg = self._make_card()   # pre-baked gradient rounded rect
+        # Icons
+        self._icons = self._load_icons()
 
+        # Kick off first fetch
         self._trigger_fetch()
 
-    # ── Setup ─────────────────────────────────────────────────────────────────
+    # ── Config / notes ─────────────────────────────────────────────────────────
 
-    def _load_config(self):
+    def _load_config(self) -> dict:
         try:
             with open(CONFIG_PATH) as f:
                 return json.load(f)
         except Exception:
             return {"weather": {"lat": 40.8197, "lon": 14.3411, "unit": "celsius"}}
 
-    def _load_note(self):
+    def _load_note(self) -> str | None:
         try:
             with open(NOTES_PATH) as f:
                 data = json.load(f)
             today = datetime.now().strftime("%m-%d")
             for entry in data.get("notes", []):
                 if entry.get("date") == today:
-                    return entry.get("text", "").strip()
+                    return entry.get("text", "").strip() or None
         except Exception as e:
             print(f"[Daily] Note load failed: {e}")
         return None
 
-    def _font(self, size):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                continue
-        return ImageFont.load_default()
+    # ── Icons ──────────────────────────────────────────────────────────────────
 
-    def _font_bold(self, size):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                continue
-        return self._font(size)
-
-    def _make_card(self):
-        """Pre-bake a gradient rounded-rect card as an RGBA image."""
-        NOTE_H  = 34 if self._note else 0
-        card_w  = self.width  - CARD_X * 2
-        card_h  = self.height - CARD_Y - 10 - NOTE_H
-
-        card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
-        cd   = ImageDraw.Draw(card)
-
-        # Horizontal gradient
-        for px in range(card_w):
-            t = px / max(card_w - 1, 1)
-            r = int(CARD_L[0] + t * (CARD_R[0] - CARD_L[0]))
-            g = int(CARD_L[1] + t * (CARD_R[1] - CARD_L[1]))
-            b = int(CARD_L[2] + t * (CARD_R[2] - CARD_L[2]))
-            cd.line([(px, 0), (px, card_h)], fill=(r, g, b, 255))
-
-        # Rounded mask
-        mask = Image.new("L", (card_w, card_h), 0)
-        md   = ImageDraw.Draw(mask)
-        try:
-            md.rounded_rectangle([(0, 0), (card_w - 1, card_h - 1)],
-                                  radius=18, fill=255)
-        except AttributeError:
-            md.rectangle([(0, 0), (card_w - 1, card_h - 1)], fill=255)
-        card.putalpha(mask)
-
-        self._card_w = card_w
-        self._card_h = card_h
-        return card
-
-    def _load_icons(self):
-        names = ["sunny", "clear_night", "partly", "partly_night",
-                 "foggy", "rainy", "snowy", "thunder"]
-        icons = {}
+    def _load_icons(self) -> dict:
+        names = [
+            "sunny", "clear_night", "partly", "partly_night",
+            "foggy", "rainy", "snowy", "thunder",
+        ]
+        icons: dict = {}
+        size = (ICON_SIZE, ICON_SIZE)
         for name in names:
             try:
                 img = Image.open(f"assets/weather/{name}.png").convert("RGBA")
-                icons[name] = _resize(img, (ICON_W, ICON_H))
+                icons[name] = _resize(img, size)
             except Exception as e:
                 print(f"[Daily] Icon '{name}' not loaded: {e}")
         return icons
 
-    # ── Weather fetch ─────────────────────────────────────────────────────────
+    # ── Weather fetch ──────────────────────────────────────────────────────────
 
     def _trigger_fetch(self):
         if self._fetching:
@@ -222,7 +288,7 @@ class DailyScreen:
         finally:
             self._fetching = False
 
-    # ── Input ─────────────────────────────────────────────────────────────────
+    # ── Input ──────────────────────────────────────────────────────────────────
 
     def update(self):
         for btn, name in BUTTON_NAMES.items():
@@ -234,91 +300,93 @@ class DailyScreen:
         if not self._fetching and time.time() - self._last_fetch > FETCH_INTERVAL:
             self._trigger_fetch()
 
-    def _on_press(self, name):
+    def _on_press(self, name: str):
         if name == "Y":
             self.on_done()
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _tw(self, text, font):
-        try:
-            bb = self.draw.textbbox((0, 0), text, font=font)
-            return bb[2] - bb[0]
-        except AttributeError:
-            w, _ = self.draw.textsize(text, font=font)
-            return w
-
-    def _th(self, font):
-        try:
-            bb = self.draw.textbbox((0, 0), "0", font=font)
-            return bb[3] - bb[1]
-        except AttributeError:
-            _, h = self.draw.textsize("0", font=font)
-            return h
-
-    # ── Render ────────────────────────────────────────────────────────────────
+    # ── Render ─────────────────────────────────────────────────────────────────
 
     def render(self):
-        w, h   = self.width, self.height
-        d, now = self.draw, datetime.now()
-        buf    = self.draw._image
+        d   = self.draw
+        buf = d._image          # underlying PIL Image for paste()
+        now = datetime.now()
 
         with self._wlock:
             code, temp = self._wcode, self._wtemp
 
-        # ── Outer background ──────────────────────────────────────────────────
-        d.rectangle((0, 0, w, h), fill=OUTER_BG)
+        # ── Background ────────────────────────────────────────────────────────
+        d.rectangle((0, 0, W, H), fill=BG)
 
-        # ── Card ──────────────────────────────────────────────────────────────
-        buf.paste(self._card_bg, (CARD_X, CARD_Y), self._card_bg)
+        # ── TOP BAR (y 0–38) ──────────────────────────────────────────────────
+        # City label (left)
+        cfg      = self._config.get("weather", {})
+        city     = cfg.get("city", "")
+        if city:
+            city_str = city.upper()
+            d.text((PAD_X, 12), city_str, font=self._f_label, fill=TEXT_DIM)
 
-        card_cy = CARD_Y + self._card_h // 2
+        # Date + time (right-aligned)
+        dt_str = now.strftime("%H:%M  ·  %a %-d %b").upper()
+        dt_w   = _tw(d, dt_str, self._f_label)
+        d.text((W - PAD_X - dt_w, 12), dt_str, font=self._f_label, fill=TEXT_FAINT)
 
-        # ── Icon (bleeds above card, anchored to top-left) ────────────────────
-        ICON_X = CARD_X + 6
-        ICON_Y = CARD_Y - 22   # sticks 22 px above card top
+        # Divider
+        d.line((0, TOP_H, W, TOP_H), fill=DIVIDER)
 
+        # ── MIDDLE ZONE (y 38–184) ────────────────────────────────────────────
+
+        # Weather icon — always within ICON_X, ICON_Y, clipped to 72×72
         if code is not None:
-            name = _icon_name(code, now.hour)
-            icon = self._icons.get(name)
+            icon = self._icons.get(_icon_name(code, now.hour))
             if icon:
                 buf.paste(icon, (ICON_X, ICON_Y), icon)
 
-        # ── Temperature — vertically centred in card ──────────────────────────
-        unit    = self._config.get("weather", {}).get("unit", "celsius")
-        unit_ch = "°C" if unit == "celsius" else "°F"
+        # Temperature numeral
+        unit_key = cfg.get("unit", "celsius")
+        unit_str = "°C" if unit_key == "celsius" else "°F"
 
-        TEMP_X  = CARD_X + ICON_W + 18   # right of icon + gap
-        temp_h  = self._th(self._f_temp)
-        temp_y  = card_cy - temp_h // 2
+        temp_str   = f"{temp:.0f}" if temp is not None else "—"
+        temp_h     = _th(d, self._f_temp)
+        temp_y     = MID_CY - temp_h // 2
 
-        if temp is not None:
-            temp_str = f"{temp:.0f}{unit_ch}"
-        else:
-            temp_str = "—"
+        d.text((TEMP_X, temp_y), temp_str, font=self._f_temp, fill=TEXT_PRIMARY)
 
-        d.text((TEMP_X, temp_y), temp_str, font=self._f_temp, fill=WHITE)
-        temp_right = TEMP_X + self._tw(temp_str, self._f_temp)
+        # Unit symbol — top-right of the numeral, smaller & dimmer
+        num_w   = _tw(d, temp_str, self._f_temp)
+        unit_x  = TEMP_X + num_w + 3
+        unit_y  = temp_y + 6          # slight vertical offset looks better
+        d.text((unit_x, unit_y), unit_str, font=self._f_unit, fill=TEXT_FAINT)
 
-        # ── Right column: condition + date/time ───────────────────────────────
-        # Gap between temp text and right column
-        RIGHT_X = max(temp_right + 14, CARD_X + self._card_w - 114)
-
-        # Condition
+        # Condition label — below temperature
         cond_str = _wmo_label(code) if code is not None else "Loading…"
-        cond_y   = card_cy - 22
-        d.text((RIGHT_X, cond_y), cond_str, font=self._f_cond, fill=WHITE)
+        cond_y   = temp_y + temp_h + 6
+        d.text((TEMP_X, cond_y), cond_str, font=self._f_cond, fill=TEXT_DIM)
 
-        # Date + time, two lines
-        date_str = now.strftime("%a. %-d. %b.")
-        time_str = now.strftime("%H:%M")
-        dt_y     = cond_y + self._th(self._f_cond) + 8
-        d.text((RIGHT_X, dt_y),      date_str, font=self._f_dt, fill=DIM_WHITE)
-        d.text((RIGHT_X, dt_y + 14), time_str, font=self._f_dt, fill=DIM_WHITE)
+        # ── BOTTOM BAR (y 184–240) ────────────────────────────────────────────
+        BTM_Y = H - BTM_H
+        d.line((0, BTM_Y, W, BTM_Y), fill=DIVIDER)
 
-        # ── Note (below card, outer background area) ──────────────────────────
-        if self._note:
-            note_y = CARD_Y + self._card_h + 10
-            nw     = self._tw(self._note, self._f_note)
-            d.text((max(CARD_X, (w - nw) // 2), note_y),
-                   self._note, font=self._f_note, fill=DIM_WHITE)
+        # Button hint [Y] — right side
+        btn_label = "Y"
+        btn_w     = 18
+        btn_x     = W - PAD_X - btn_w
+        btn_cy    = BTM_Y + BTM_H // 2
+        d.rounded_rectangle(
+            (btn_x, btn_cy - 9, btn_x + btn_w, btn_cy + 9),
+            radius=4,
+            outline=TEXT_FAINT,
+        )
+        bw = _tw(d, btn_label, self._f_label)
+        d.text(
+            (btn_x + (btn_w - bw) // 2, btn_cy - _th(d, self._f_label) // 2),
+            btn_label, font=self._f_label, fill=TEXT_FAINT,
+        )
+
+        # Note text — left side, truncated to avoid the button
+        note_text = self._note if self._note else ""
+        if note_text:
+            max_note_w = btn_x - PAD_X - 8
+            note_str   = _truncate(d, note_text, self._f_note, max_note_w)
+            note_h     = _th(d, self._f_note)
+            note_y     = BTM_Y + (BTM_H - note_h) // 2
+            d.text((PAD_X, note_y), note_str, font=self._f_note, fill=TEXT_DIM)
