@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 import json
-import math
 import time
 import threading
 import urllib.request
 from datetime import datetime
-from PIL import ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
 
 CONFIG_PATH    = "config.json"
@@ -26,99 +25,41 @@ BUTTON_NAMES = {
     DisplayHATMini.BUTTON_Y: "Y",
 }
 
-AMBER     = (215, 148,  18)   # card background
-AMBER_DRK = (170, 112,   8)   # note strip
-WHITE     = (255, 255, 255)   # primary text / icons
-OFF_WHITE = (245, 232, 195)   # secondary text
-RAIN_TINT = (170, 215, 255)   # rain drops (only colour accent on amber)
+# Palette
+BG_TOP  = (13,  17,  46)   # deep indigo
+BG_BOT  = ( 7,   9,  22)   # near-black
+WHITE   = (255, 255, 255)
+MUTED   = ( 98, 116, 168)   # slate-blue secondary
+SEP     = ( 28,  36,  68)   # barely-visible divider
+NOTE_C  = (162, 175, 212)   # note text
 
+ICON_SIZE = (80, 80)
 
-# ── WMO codes ─────────────────────────────────────────────────────────────────
+# WMO code → asset name (day / night variants)
+def _icon_name(code, hour):
+    night = not (6 <= hour < 20)
+    if code == 0:   return "clear_night" if night else "sunny"
+    if code <= 2:   return "partly_night" if night else "partly"
+    if code == 3:   return "partly_night" if night else "partly"
+    if code <= 48:  return "foggy"
+    if code <= 65:  return "rainy"
+    if code <= 77:  return "snowy"
+    if code <= 82:  return "rainy"
+    if code <= 94:  return "snowy"
+    return                  "thunder"
 
-def _wmo_info(code):
-    if code == 0:  return "Clear",         "sun"
-    if code <= 2:  return "Partly cloudy", "partly_cloudy"
-    if code == 3:  return "Overcast",      "cloud"
-    if code <= 48: return "Foggy",         "fog"
-    if code <= 55: return "Drizzle",       "drizzle"
-    if code <= 65: return "Rain",          "rain"
-    if code <= 77: return "Snow",          "snow"
-    if code <= 82: return "Showers",       "rain"
-    if code <= 94: return "Snow showers",  "snow"
-    return                "Thunderstorm",  "storm"
+def _wmo_label(code):
+    if code == 0:   return "Clear"
+    if code <= 2:   return "Mostly clear"
+    if code == 3:   return "Overcast"
+    if code <= 48:  return "Foggy"
+    if code <= 55:  return "Drizzle"
+    if code <= 65:  return "Rain"
+    if code <= 77:  return "Snow"
+    if code <= 82:  return "Showers"
+    if code <= 94:  return "Snow showers"
+    return                  "Thunderstorm"
 
-
-# ── Icon primitives — all white/single-tint for legibility on amber ───────────
-
-def _p_sun(d, cx, cy, r=26, c=WHITE):
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=c)
-    for deg in range(0, 360, 45):
-        rad = math.radians(deg)
-        x1 = cx + (r + 4) * math.cos(rad)
-        y1 = cy + (r + 4) * math.sin(rad)
-        x2 = cx + (r + 13) * math.cos(rad)
-        y2 = cy + (r + 13) * math.sin(rad)
-        d.line(((x1, y1), (x2, y2)), fill=c, width=3)
-
-
-def _p_cloud(d, cx, cy, w=54, c=WHITE):
-    bh = w // 2
-    br = bh // 2
-    d.ellipse((cx - w // 2, cy - br,         cx + w // 2, cy + br),         fill=c)
-    d.ellipse((cx - w // 4 - br, cy - bh,    cx - w // 4 + br, cy),         fill=c)
-    d.ellipse((cx + w // 8 - br, cy - bh - br // 2,
-               cx + w // 8 + br, cy - br // 2),                             fill=c)
-
-
-def _p_rain(d, cx, cy, n=5, c=RAIN_TINT):
-    for i in range(n):
-        x  = cx + (i - n // 2) * 10
-        yo = (i % 2) * 5
-        d.line(((x, cy + yo), (x - 5, cy + yo + 13)), fill=c, width=2)
-
-
-def _p_snow(d, cx, cy, n=6, c=WHITE):
-    for i in range(n):
-        x = cx + (i - n // 2) * 10 + (i % 2) * 4
-        y = cy + (i % 2) * 8
-        d.ellipse((x - 3, y - 3, x + 3, y + 3), fill=c)
-
-
-def _p_fog(d, cx, cy, w=56, c=OFF_WHITE):
-    for i, frac in enumerate((1.0, 0.60, 0.82, 0.50)):
-        lw = int(w * frac)
-        y  = cy + i * 10 - 15
-        d.line(((cx - lw // 2, y), (cx + lw // 2, y)), fill=c, width=3)
-
-
-def _p_lightning(d, cx, cy, c=WHITE):
-    pts = [(cx + 5, cy - 14), (cx - 4, cy + 2), (cx + 5, cy + 2), (cx - 6, cy + 17)]
-    d.polygon(pts, fill=c)
-
-
-def _draw_icon(d, cx, cy, kind):
-    if kind == "sun":
-        _p_sun(d, cx, cy)
-    elif kind == "partly_cloudy":
-        # Draw sun first; cloud overlaps, leaving rays visible at edges
-        _p_sun(d, cx - 14, cy - 12, r=18)
-        _p_cloud(d, cx + 10, cy + 8, w=40)
-    elif kind == "cloud":
-        _p_cloud(d, cx, cy)
-    elif kind == "fog":
-        _p_fog(d, cx, cy)
-    elif kind in ("drizzle", "rain"):
-        _p_cloud(d, cx, cy - 12, w=50)
-        _p_rain(d, cx, cy + 12, n=4 if kind == "drizzle" else 5)
-    elif kind == "snow":
-        _p_cloud(d, cx, cy - 12, w=50)
-        _p_snow(d, cx, cy + 12)
-    elif kind == "storm":
-        _p_cloud(d, cx, cy - 14, w=50, c=OFF_WHITE)
-        _p_lightning(d, cx, cy + 6)
-
-
-# ── Screen ────────────────────────────────────────────────────────────────────
 
 class DailyScreen:
     def __init__(self, draw: ImageDraw.ImageDraw, width: int, height: int,
@@ -140,15 +81,19 @@ class DailyScreen:
         self._fetching = False
         self._last_fetch = 0.0
 
-        self._f_header = self._font(11)
-        self._f_temp   = self._font_bold(58)
-        self._f_unit   = self._font_bold(22)   # °C superscript beside number
-        self._f_cond   = self._font(14)
-        self._f_note   = self._font(11)
+        self._f_date = self._font(10)
+        self._f_time = self._font_bold(50)
+        self._f_temp = self._font_bold(34)
+        self._f_unit = self._font(17)
+        self._f_cond = self._font(12)
+        self._f_note = self._font(11)
+
+        self._bg    = self._make_gradient()
+        self._icons = self._load_icons()
 
         self._trigger_fetch()
 
-    # ── Loaders ───────────────────────────────────────────────────────────────
+    # ── Setup ─────────────────────────────────────────────────────────────────
 
     def _load_config(self):
         try:
@@ -193,6 +138,29 @@ class DailyScreen:
                 continue
         return self._font(size)
 
+    def _make_gradient(self):
+        img = Image.new("RGB", (self.width, self.height))
+        d   = ImageDraw.Draw(img)
+        for y in range(self.height):
+            t = y / (self.height - 1)
+            r = int(BG_TOP[0] + t * (BG_BOT[0] - BG_TOP[0]))
+            g = int(BG_TOP[1] + t * (BG_BOT[1] - BG_TOP[1]))
+            b = int(BG_TOP[2] + t * (BG_BOT[2] - BG_TOP[2]))
+            d.line((0, y, self.width, y), fill=(r, g, b))
+        return img
+
+    def _load_icons(self):
+        names = ["sunny", "clear_night", "partly", "partly_night",
+                 "foggy", "rainy", "snowy", "thunder"]
+        icons = {}
+        for name in names:
+            try:
+                img = Image.open(f"assets/weather/{name}.png").convert("RGBA")
+                icons[name] = img.resize(ICON_SIZE, Image.LANCZOS)
+            except Exception as e:
+                print(f"[Daily] Icon '{name}' not loaded: {e}")
+        return icons
+
     # ── Weather fetch ─────────────────────────────────────────────────────────
 
     def _trigger_fetch(self):
@@ -216,7 +184,7 @@ class DailyScreen:
             with self._wlock:
                 self._wcode = code
                 self._wtemp = temp
-            print(f"[Daily] Weather fetched: code={code} temp={temp}")
+            print(f"[Daily] Weather: code={code} temp={temp}")
         except Exception as e:
             print(f"[Daily] Weather fetch failed: {e}")
         finally:
@@ -250,72 +218,78 @@ class DailyScreen:
 
     def _th(self, font):
         try:
-            bb = self.draw.textbbox((0, 0), "Ag", font=font)
+            bb = self.draw.textbbox((0, 0), "0", font=font)
             return bb[3] - bb[1]
         except AttributeError:
-            _, h = self.draw.textsize("Ag", font=font)
+            _, h = self.draw.textsize("0", font=font)
             return h
 
     def render(self):
         w, h   = self.width, self.height
         d, now = self.draw, datetime.now()
+        MX     = 16   # left margin
 
-        NOTE_H   = 40
-        has_note = bool(self._note)
-        card_h   = h - NOTE_H if has_note else h
+        # ── Background gradient ───────────────────────────────────────────────
+        self.draw._image.paste(self._bg, (0, 0))
 
-        # ── Backgrounds ───────────────────────────────────────────────────────
-        d.rectangle((0, 0, w, h), fill=AMBER)
-        if has_note:
-            d.rectangle((0, h - NOTE_H, w, h), fill=AMBER_DRK)
-
-        MARGIN = 14
-
-        # ── Header: day+date left, time right ─────────────────────────────────
-        day_str  = now.strftime("%A, %-d %B")
-        time_str = now.strftime("%H:%M")
-        d.text((MARGIN, 10), day_str,  font=self._f_header, fill=OFF_WHITE)
-        tw = self._tw(time_str, self._f_header)
-        d.text((w - MARGIN - tw, 10), time_str, font=self._f_header, fill=OFF_WHITE)
-
-        # ── Temperature (large, left-aligned) ─────────────────────────────────
         with self._wlock:
             code, temp = self._wcode, self._wtemp
 
-        unit_sym = "°C" if self._config.get("weather", {}).get("unit") == "celsius" else "°F"
+        has_note  = bool(self._note)
+        NOTE_ZONE = 36   # pixels reserved at bottom when note exists
 
-        TEMP_Y = 36
+        # ── Date header ───────────────────────────────────────────────────────
+        date_str = now.strftime("%A · %-d %B")
+        d.text((MX, 10), date_str, font=self._f_date, fill=MUTED)
+
+        # ── Time (hero) ───────────────────────────────────────────────────────
+        time_str = now.strftime("%H:%M")
+        TIME_Y   = 22
+        d.text((MX, TIME_Y), time_str, font=self._f_time, fill=WHITE)
+        time_h = self._th(self._f_time)
+
+        # ── Weather icon (right, vertically centred in upper ~60% of screen) ──
+        upper_h  = h - NOTE_ZONE if has_note else h
+        icon_y   = max(14, (upper_h - ICON_SIZE[1]) // 2 - 8)
+        icon_x   = w - ICON_SIZE[0] - 14
+
+        if code is not None:
+            name = _icon_name(code, now.hour)
+            icon = self._icons.get(name)
+            if icon:
+                self.draw._image.paste(icon, (icon_x, icon_y), icon)
+
+        # ── Temperature ───────────────────────────────────────────────────────
+        TEMP_Y  = TIME_Y + time_h + 14
+        unit    = self._config.get("weather", {}).get("unit", "celsius")
+        unit_ch = "C" if unit == "celsius" else "F"
+
         if temp is not None:
-            num_str = f"{temp:.0f}"
-            num_w   = self._tw(num_str, self._f_temp)
-            num_h   = self._th(self._f_temp)
-            d.text((MARGIN, TEMP_Y), num_str, font=self._f_temp, fill=WHITE)
-            # Unit as smaller superscript to the right of the number
-            d.text((MARGIN + num_w + 3, TEMP_Y + 8), unit_sym,
-                   font=self._f_unit, fill=WHITE)
-            cond_y = TEMP_Y + num_h + 2
+            num_str = f"{temp:.0f}°"
+            d.text((MX, TEMP_Y), num_str, font=self._f_temp, fill=WHITE)
+            nw = self._tw(num_str, self._f_temp)
+            # Smaller unit char, top-aligned with number
+            d.text((MX + nw + 2, TEMP_Y + 4), unit_ch,
+                   font=self._f_unit, fill=MUTED)
+            cond_y = TEMP_Y + self._th(self._f_temp) + 6
         else:
-            d.text((MARGIN, TEMP_Y + 16), "—", font=self._f_temp, fill=WHITE)
-            cond_y = TEMP_Y + 58
+            d.text((MX, TEMP_Y + 8), "—", font=self._f_temp, fill=MUTED)
+            cond_y = TEMP_Y + 42
 
         # ── Condition label ───────────────────────────────────────────────────
         if code is not None:
-            label, _ = _wmo_info(code)
-            d.text((MARGIN, cond_y), label, font=self._f_cond, fill=OFF_WHITE)
+            d.text((MX, cond_y), _wmo_label(code), font=self._f_cond, fill=MUTED)
         elif temp is None:
-            d.text((MARGIN, cond_y), "Fetching…", font=self._f_cond, fill=OFF_WHITE)
+            d.text((MX, cond_y), "Fetching weather…", font=self._f_cond, fill=MUTED)
 
-        # ── Icon (right side, centred vertically in card area) ────────────────
-        icon_x = w - 78
-        icon_y = card_h // 2 + 10
-        if code is not None:
-            _, kind = _wmo_info(code)
-            _draw_icon(d, icon_x, icon_y, kind)
-
-        # ── Note strip ────────────────────────────────────────────────────────
+        # ── Note ─────────────────────────────────────────────────────────────
         if has_note:
-            note_h  = self._th(self._f_note)
-            note_y  = h - NOTE_H + (NOTE_H - note_h) // 2
-            nw      = self._tw(self._note, self._f_note)
-            d.text((max(MARGIN, (w - nw) // 2), note_y),
-                   self._note, font=self._f_note, fill=OFF_WHITE)
+            sep_y  = h - NOTE_ZONE
+            note_h = self._th(self._f_note)
+            note_y = sep_y + (NOTE_ZONE - note_h) // 2
+
+            d.line((MX, sep_y, w - MX, sep_y), fill=SEP, width=1)
+
+            nw = self._tw(self._note, self._f_note)
+            d.text((max(MX, (w - nw) // 2), note_y),
+                   self._note, font=self._f_note, fill=NOTE_C)
