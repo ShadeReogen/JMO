@@ -13,12 +13,13 @@ BUTTON_NAMES = {
 
 class MenuScreen:
     def __init__(self, draw: ImageDraw.ImageDraw, width: int, height: int, display: DisplayHATMini,
-                 on_settings=None):
+                 on_settings=None, on_daily=None):
         self.draw        = draw
         self.width       = width
         self.height      = height
         self.display     = display
         self.on_settings = on_settings
+        self.on_daily    = on_daily
 
         # Edge-detect state: only fire once per physical press
         self._prev = {btn: False for btn in BUTTON_NAMES}
@@ -55,10 +56,10 @@ class MenuScreen:
 
     def _on_press(self, name):
         print(f"[Menu] Button pressed: {name}")
-        # A → digital frame
-        # B → daily screen
-        # X → mood / check-in
-        if name == "Y" and self.on_settings:
+        # A → digital frame  X → mood / check-in
+        if name == "B" and self.on_daily:
+            self.on_daily()
+        elif name == "Y" and self.on_settings:
             self.on_settings()
 
     def render(self):

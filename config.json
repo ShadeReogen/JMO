@@ -8,8 +8,9 @@
     "brightness": 10
   },
   "weather": {
-    "lat": 47.37,
-    "lon": 8.54
+    "lat": 40.8197,
+    "lon": 14.3411,
+    "unit": "celsius"
   },
   "frame": {
     "interval_seconds": 30,
