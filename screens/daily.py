@@ -51,19 +51,10 @@ FS_COND  = 13
 FS_NOTE  = 13
 
 _REGULAR_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 ]
 _BOLD_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-]
-_ITALIC_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 ]
 
 
@@ -153,7 +144,7 @@ class DailyScreen:
         self._f_temp   = _load_font(_BOLD_PATHS,    FS_TEMP)
         self._f_unit   = _load_font(_REGULAR_PATHS, FS_UNIT)
         self._f_cond   = _load_font(_REGULAR_PATHS, FS_COND)
-        self._f_note   = _load_font(_ITALIC_PATHS,  FS_NOTE)
+        self._f_note   = _load_font(_REGULAR_PATHS,  FS_NOTE)
 
         self._bg    = self._load_bg()
         self._icons = self._load_icons()
