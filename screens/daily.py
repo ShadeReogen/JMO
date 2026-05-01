@@ -44,11 +44,11 @@ ICON_X   = PAD_X
 ICON_Y   = MID_Y + (MID_H - ICON_SIZE) // 2
 TEMP_X   = ICON_X + ICON_SIZE + 14
 
-FS_LABEL = 13
+FS_LABEL = 20
 FS_TEMP  = 54
 FS_UNIT  = 22
 FS_COND  = 13
-FS_NOTE  = 13
+FS_NOTE  = 20
 
 _REGULAR_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
