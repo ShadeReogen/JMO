@@ -183,6 +183,11 @@ class SettingsScreen:
         tw = self._text_w(title, self._font_b)
         d.text(((w - tw) // 2, 8), title, font=self._font_b, fill=COLOR_TITLE)
 
+        # Version
+        ver = cfg_module.VERSION
+        vw = self._text_w(ver, self._font)
+        d.text((w - vw - 8, 10), ver, font=self._font, fill=COLOR_HINT)
+
         # Divider
         d.line((8, 30, w - 8, 30), fill=COLOR_DIV, width=1)
 

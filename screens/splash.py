@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import time
 import math
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import config as _cfg
 from PIL import ImageFont, ImageDraw, Image
 
 
@@ -62,9 +66,11 @@ class SplashScreen:
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         ]
         self.font = ImageFont.load_default()
+        self.font_ver = ImageFont.load_default()
         for path in candidates:
             try:
-                self.font = ImageFont.truetype(path, 56)
+                self.font     = ImageFont.truetype(path, 56)
+                self.font_ver = ImageFont.truetype(path, 16)
                 break
             except Exception:
                 continue
@@ -88,7 +94,8 @@ class SplashScreen:
 
         # visual top Y when settled = (height - vis_h) // 2
         vis_top = oy_base + full_bb[1]
-        self.drop = vis_top + vis_h + 8   # chars start just above top of screen
+        self.drop   = vis_top + vis_h + 8   # chars start just above top of screen
+        self.ver_y  = vis_top + vis_h + 12  # version label sits just below the logo
 
         # Animation timing per group
         timed = []
@@ -112,6 +119,21 @@ class SplashScreen:
             vis_idx += 1
 
     # ── Rendering helpers ──────────────────────────────────────────────────────
+
+    def _stamp_ver(self, text, ox, oy, color, alpha):
+        """Like _stamp but uses the smaller version font."""
+        if alpha <= 0.0:
+            return
+        bb = self.draw.textbbox((0, 0), text, font=self.font_ver) if hasattr(self.draw, 'textbbox') else (0, 0, *self.draw.textsize(text, font=self.font_ver))
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        if tw <= 0 or th <= 0:
+            return
+        pad  = 2
+        surf = Image.new("RGBA", (tw + 2 * pad, th + 2 * pad), (0, 0, 0, 0))
+        d    = ImageDraw.Draw(surf)
+        d.text((pad - bb[0], pad - bb[1]), text, font=self.font_ver,
+               fill=(*color, int(alpha * 255)))
+        self._image.paste(surf, (ox + bb[0] - pad, oy + bb[1] - pad), surf)
 
     def _stamp(self, text, ox, oy, color, alpha):
         """Stamp text at PIL origin (ox, oy), correctly offsetting the bbox."""
@@ -154,3 +176,15 @@ class SplashScreen:
             disp = _spring_disp(t)
             fade = _clamp((1.0 - disp) * 2.0)
             self._stamp(ch, ox, oy - int(self.drop * disp), color, fade * global_a)
+
+        # Version label — fades in once the last char has settled
+        ver_fade = _clamp((elapsed - (_STAGGER * 5 + _WORD_GAP + _ANIM_DUR)) / 0.3)
+        if ver_fade > 0:
+            ver = _cfg.VERSION
+            try:
+                vbb = self.draw.textbbox((0, 0), ver, font=self.font_ver)
+            except AttributeError:
+                w, h = self.draw.textsize(ver, font=self.font_ver)
+                vbb  = (0, 0, w, h)
+            vx = (self.width - (vbb[2] - vbb[0])) // 2 - vbb[0]
+            self._stamp_ver(ver, vx, self.ver_y, COLOR_VER, ver_fade * global_a)
