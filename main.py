@@ -6,6 +6,7 @@ from screens.splash import SplashScreen
 from screens.menu import MenuScreen
 from screens.settings import SettingsScreen
 from screens.daily import DailyScreen
+from screens.photo import PhotoScreen
 
 # --- Display setup ---
 width = DisplayHATMini.WIDTH
@@ -30,13 +31,17 @@ def main():
     def go_to_menu():
         set_screen(MenuScreen(draw, width, height, display,
                               on_settings=go_to_settings,
-                              on_daily=go_to_daily))
+                              on_daily=go_to_daily,
+                              on_photo=go_to_photo))
 
     def go_to_settings():
         set_screen(SettingsScreen(draw, width, height, display, on_done=go_to_menu))
 
     def go_to_daily():
         set_screen(DailyScreen(draw, width, height, display, on_done=go_to_menu))
+
+    def go_to_photo():
+        set_screen(PhotoScreen(draw, width, height, display, on_exit=go_to_menu))
 
     set_screen(SplashScreen(draw, width, height, go_to_menu))
 
