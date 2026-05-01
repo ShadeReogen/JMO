@@ -1,20 +1,36 @@
 {
   "notes": [
     {
+      "date": "01-01",
+      "text": "BUON ANNOOO!"
+    },
+    {
+      "date": "02-04",
+      "text": "Buon Compleanno!"
+    },
+    {
       "date": "02-14",
-      "text": "Happy Valentine's Day ❤️"
+      "text": "Buon San Valentino!"
+    },
+    {
+      "date": "02-14",
+      "text": "Buon San Valentino!"
+    },
+    {
+      "date": "02-14",
+      "text": "Buon San Valentino!"
     },
     {
       "date": "12-25",
-      "text": "Merry Christmas! 🎄"
+      "text": "Merry Christmas!"
     },
     {
-      "date": "04-29",
+      "date": "12-28",
+      "text": "Auguri Messere!"
+    },
+    {
+      "date": "05-01",
       "text": "Sei na scoreggiaa! 🎄"
-    },
-    {
-      "date": "01-01",
-      "text": "Happy New Year! 🎆"
     }
   ]
 }

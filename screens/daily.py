@@ -281,16 +281,26 @@ class DailyScreen:
 
         d.text((TEMP_X, temp_y), temp_str, font=self._f_temp, fill=TEXT_PRIMARY)
 
+        # Use the real bounding box to find the actual bottom and left of the glyph
+        try:
+            temp_bb     = d.textbbox((TEMP_X, temp_y), temp_str, font=self._f_temp)
+            temp_left   = temp_bb[0]
+            temp_bottom = temp_bb[3]
+            num_w       = temp_bb[2] - temp_bb[0]
+        except AttributeError:
+            temp_left   = TEMP_X
+            temp_bottom = temp_y + temp_h
+            num_w       = _tw(d, temp_str, self._f_temp)
+
         # Unit symbol
-        num_w  = _tw(d, temp_str, self._f_temp)
         unit_x = TEMP_X + num_w + 3
         unit_y = temp_y + 6
         d.text((unit_x, unit_y), unit_str, font=self._f_unit, fill=TEXT_FAINT)
 
-        # Condition
+        # Condition — anchored to the actual bottom-left of the temperature glyph
         cond_str = _wmo_label(code) if code is not None else "Loading…"
-        cond_y   = temp_y + temp_h + 6
-        d.text((TEMP_X, cond_y), cond_str, font=self._f_cond, fill=TEXT_DIM)
+        cond_y   = temp_bottom + 6
+        d.text((temp_left, cond_y), cond_str, font=self._f_cond, fill=TEXT_DIM)
 
         # Note (conditional — only if a note exists for today)
         if self._note:
