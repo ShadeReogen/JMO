@@ -7,6 +7,7 @@ from screens.menu import MenuScreen
 from screens.settings import SettingsScreen
 from screens.daily import DailyScreen
 from screens.photo import PhotoScreen
+from screens.memory_lane import MemoryLaneScreen
 
 # --- Display setup ---
 width = DisplayHATMini.WIDTH
@@ -32,7 +33,8 @@ def main():
         set_screen(MenuScreen(draw, width, height, display,
                               on_settings=go_to_settings,
                               on_daily=go_to_daily,
-                              on_photo=go_to_photo))
+                              on_photo=go_to_photo,
+                              on_memory=go_to_memory_lane))
 
     def go_to_settings():
         set_screen(SettingsScreen(draw, width, height, display, on_done=go_to_menu))
@@ -42,6 +44,9 @@ def main():
 
     def go_to_photo():
         set_screen(PhotoScreen(draw, width, height, display, on_exit=go_to_menu))
+
+    def go_to_memory_lane():
+        set_screen(MemoryLaneScreen(draw, width, height, display, on_exit=go_to_menu))
 
     set_screen(SplashScreen(draw, width, height, go_to_menu))
 
