@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 import json
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import config as cfg_module
 from PIL import ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
 
@@ -22,10 +26,14 @@ COLOR_VAL_SEL= (255, 220,  60)
 COLOR_HINT   = (70,  70, 110)
 COLOR_DIV    = (50,  50,  90)
 
-ITEMS = ["brightness", "night_mode_start", "update"]
+PHOTO_INTERVAL_OPTIONS = [1, 5, 12, 24]
+PHOTO_INTERVAL_LABELS  = {1: "1 hr", 5: "5 hrs", 12: "12 hrs", 24: "Daily"}
+
+ITEMS = ["brightness", "night_mode_start", "photo_interval", "update"]
 LABELS = {
     "brightness":      "Brightness",
     "night_mode_start": "Night Mode",
+    "photo_interval":  "Photo Refresh",
     "update":          "Update",
 }
 
@@ -62,6 +70,7 @@ class SettingsScreen:
         try:
             with open(CONFIG_PATH, "w") as f:
                 json.dump(self._config, f, indent=2)
+            cfg_module.reload()
             print("[Settings] Config saved.")
         except Exception as e:
             print(f"[Settings] Failed to save config: {e}")
@@ -132,6 +141,16 @@ class SettingsScreen:
                 m = (m + 15) % 60
             self._config.setdefault("night_mode", {})["start"] = f"{h:02d}:{m:02d}"
 
+        elif item == "photo_interval":
+            current = self._config.get("photo_interval_hours", 24)
+            opts = PHOTO_INTERVAL_OPTIONS
+            idx = opts.index(current) if current in opts else len(opts) - 1
+            if button == "X":
+                idx = (idx + 1) % len(opts)
+            elif button == "A":
+                idx = (idx - 1) % len(opts)
+            self._config["photo_interval_hours"] = opts[idx]
+
         elif item == "update":
             if button == "X":
                 self._do_update()
@@ -199,4 +218,7 @@ class SettingsScreen:
             return f"{self._config.get('brightness', 80)}%"
         if item == "night_mode_start":
             return self._config.get("night_mode", {}).get("start", "23:00")
+        if item == "photo_interval":
+            hours = self._config.get("photo_interval_hours", 24)
+            return PHOTO_INTERVAL_LABELS.get(hours, f"{hours} hrs")
         return ""

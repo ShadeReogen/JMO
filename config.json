@@ -16,5 +16,10 @@
     "interval_seconds": 30,
     "shuffle": true
   },
+  "supabase": {
+    "url": "https://fbvcoymoorkdslknkspk.supabase.co",
+    "publishable_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidmNveW1vb3JrZHNsa25rc3BrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0ODYxMTMsImV4cCI6MjA5MzA2MjExM30.uaRXZdipSU69m4Z1YcjW_9DS58lgMcI3cwcijxWueN0"
+  },
+  "photo_interval_hours": 24,
   "last_mode": "menu"
 }
