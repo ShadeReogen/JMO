@@ -44,11 +44,11 @@ ICON_X   = PAD_X
 ICON_Y   = MID_Y + (MID_H - ICON_SIZE) // 2
 TEMP_X   = ICON_X + ICON_SIZE + 14
 
-FS_LABEL = 11
+FS_LABEL = 13
 FS_TEMP  = 54
 FS_UNIT  = 22
 FS_COND  = 13
-FS_NOTE  = 11
+FS_NOTE  = 13
 
 _REGULAR_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -300,7 +300,7 @@ class DailyScreen:
         # Condition — anchored to the actual bottom-left of the temperature glyph
         cond_str = _wmo_label(code) if code is not None else "Loading…"
         cond_y   = temp_bottom + 6
-        d.text((temp_left, cond_y), cond_str, font=self._f_cond, fill=TEXT_DIM)
+        d.text((temp_left + 4, cond_y), cond_str, font=self._f_cond, fill=TEXT_DIM)
 
         # Note (conditional — only if a note exists for today)
         if self._note:
