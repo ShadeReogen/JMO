@@ -139,10 +139,10 @@ class PhotoScreen:
     # ── Screen interface ───────────────────────────────────────────────────────
 
     def update(self):
-        # Button edge detection — any press exits
-        for btn in BUTTON_NAMES:
+        for btn, name in BUTTON_NAMES.items():
             pressed = self.display.read_button(btn)
-            if pressed and not self._prev_buttons[btn]:
+            if pressed and not self._prev_buttons[btn] and name == "Y":
+                self._prev_buttons[btn] = pressed
                 self.on_exit()
                 return
             self._prev_buttons[btn] = pressed

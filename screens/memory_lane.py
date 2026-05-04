@@ -180,7 +180,17 @@ class MemoryLaneScreen:
             self._mode = "calendar"
 
     def _press_cal(self, name):
+        today = date.today()
+        # Earliest allowed: 2 months back
+        min_m = today.month - 2
+        min_y = today.year
+        if min_m <= 0:
+            min_m += 12
+            min_y -= 1
+
         if name == "A":
+            if (self._cal_year, self._cal_month) <= (min_y, min_m):
+                return
             if self._cal_month == 1:
                 self._cal_month, self._cal_year = 12, self._cal_year - 1
             else:
@@ -188,6 +198,8 @@ class MemoryLaneScreen:
             self._clamp_day()
 
         elif name == "X":
+            if (self._cal_year, self._cal_month) >= (today.year, today.month):
+                return
             if self._cal_month == 12:
                 self._cal_month, self._cal_year = 1, self._cal_year + 1
             else:
