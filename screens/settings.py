@@ -2,10 +2,14 @@
 import json
 import sys
 import os
+import subprocess
+import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import config as cfg_module
 from PIL import ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CONFIG_PATH = "config.json"
 
@@ -47,8 +51,9 @@ class SettingsScreen:
         self.display = display
         self.on_done = on_done
 
-        self._prev = {btn: False for btn in BUTTON_NAMES}
-        self._sel  = 0
+        self._prev          = {btn: False for btn in BUTTON_NAMES}
+        self._sel           = 0
+        self._update_status = None  # None | "Updating..." | "Done!" | "Failed"
 
         self._config = self._load_config()
         self._font   = self._load_font(13)
@@ -160,7 +165,41 @@ class SettingsScreen:
         self.display.set_backlight(brightness / 100.0)
 
     def _do_update(self):
-        pass  # TODO: implement update
+        if self._update_status == "Updating...":
+            return
+        self._update_status = "Updating..."
+
+        config_snapshot = dict(self._config)
+
+        def _run():
+            try:
+                git = ["git", "-C", _REPO_ROOT]
+
+                # Discard git's view of config.json so pull won't be blocked
+                subprocess.run(
+                    git + ["checkout", "HEAD", "--", "config.json"],
+                    check=True, capture_output=True,
+                )
+
+                subprocess.run(
+                    git + ["pull", "origin", "main"],
+                    check=True, capture_output=True,
+                )
+
+                # Restore the user's settings over whatever was just pulled
+                with open(CONFIG_PATH, "w") as f:
+                    json.dump(config_snapshot, f, indent=2)
+
+                self._update_status = "Done!"
+                print("[Settings] Update complete.")
+            except subprocess.CalledProcessError as e:
+                self._update_status = "Failed"
+                print(f"[Settings] Update failed: {e.stderr.decode(errors='replace').strip()}")
+            except Exception as e:
+                self._update_status = "Failed"
+                print(f"[Settings] Update error: {e}")
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -226,4 +265,6 @@ class SettingsScreen:
         if item == "photo_interval":
             hours = self._config.get("photo_interval_hours", 24)
             return PHOTO_INTERVAL_LABELS.get(hours, f"{hours} hrs")
+        if item == "update":
+            return self._update_status or ""
         return ""
