@@ -54,7 +54,7 @@ class MemoryLaneScreen:
         self._font_md = self._load_font(14)
         self._font_sm = self._load_font(11)
 
-        self._memories = self._load_memories()
+        self._memories, self._memories_by_md = self._load_memories()
 
         self._mode      = "view"
         self._selected  = date.today()
@@ -67,7 +67,7 @@ class MemoryLaneScreen:
         self._photo_err = False
         self._lock      = threading.Lock()
 
-        self._current_memory = self._memories.get(self._selected.strftime("%Y-%m-%d"))
+        self._current_memory, self._current_memory_key = self._lookup_memory(self._selected)
         self._maybe_load_photo()
 
     # ── Fonts & text helpers ───────────────────────────────────────────────────
@@ -109,13 +109,27 @@ class MemoryLaneScreen:
     def _load_memories(self):
         try:
             with open(MEMORIES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
         except FileNotFoundError:
             print("[MemoryLane] memories.json not found.")
-            return {}
+            raw = {}
         except Exception as e:
             print(f"[MemoryLane] Could not load memories.json: {e}")
-            return {}
+            raw = {}
+
+        by_md: dict = {}
+        for key, val in raw.items():
+            md = key[5:]  # "MM-DD" from "YYYY-MM-DD"
+            if md not in by_md:
+                by_md[md] = (key, val)
+        return raw, by_md
+
+    def _lookup_memory(self, d: date):
+        """Return (memory_data, full_key) matched by MM-DD, year-independent."""
+        match = self._memories_by_md.get(d.strftime("%m-%d"))
+        if match:
+            return match[1], match[0]
+        return None, None
 
     def _maybe_load_photo(self):
         m = self._current_memory
@@ -212,7 +226,7 @@ class MemoryLaneScreen:
 
         elif name == "Y":
             self._selected = date(self._cal_year, self._cal_month, self._cal_day)
-            self._current_memory = self._memories.get(self._selected.strftime("%Y-%m-%d"))
+            self._current_memory, self._current_memory_key = self._lookup_memory(self._selected)
             self._maybe_load_photo()
             self._mode = "view"
 
@@ -250,9 +264,14 @@ class MemoryLaneScreen:
         else:
             self.draw.rectangle((0, 0, w, h), fill=_BG)
 
-        # Date header
-        self.draw.text((8, 5), self._selected.strftime("%B %d, %Y"),
-                       font=self._font_md, fill=_TITLE)
+        # Date header — show year from memory key if available
+        if self._current_memory_key:
+            ky, km, kd = self._current_memory_key.split("-")
+            key_date = date(int(ky), int(km), int(kd))
+            date_str = f"{int(kd)}. {key_date.strftime('%b')}. {ky}"
+        else:
+            date_str = self._selected.strftime("%-d. %b.")
+        self.draw.text((8, 5), date_str, font=self._font_md, fill=_TITLE)
 
         # Content
         if m is None:
@@ -299,16 +318,16 @@ class MemoryLaneScreen:
             for ci, day in enumerate(week):
                 if day == 0:
                     continue
-                x   = ci * cell_w
-                y   = y0 + ri * cell_h
-                key = date(self._cal_year, self._cal_month, day).strftime("%Y-%m-%d")
+                x  = ci * cell_w
+                y  = y0 + ri * cell_h
+                md = f"{self._cal_month:02d}-{day:02d}"
 
                 if day == self._cal_day:
                     self.draw.rectangle(
                         (x + 1, y, x + cell_w - 2, y + cell_h - 3), fill=_SEL_BG
                     )
                     col = _SEL
-                elif key in self._memories:
+                elif md in self._memories_by_md:
                     col = _ACCENT
                 else:
                     col = _TEXT
