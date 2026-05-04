@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 import json
-import sys
 import os
+import subprocess
+import sys
+import threading
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import config as cfg_module
 from PIL import ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
 
-CONFIG_PATH = "config.json"
+_REPO_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_UPDATE_SCRIPT = os.path.join(_REPO_ROOT, "scripts", "update.sh")
+CONFIG_PATH  = "config.json"
 
 BUTTON_NAMES = {
     DisplayHATMini.BUTTON_A: "A",
@@ -25,16 +30,20 @@ COLOR_VAL    = (160, 160,  80)
 COLOR_VAL_SEL= (255, 220,  60)
 COLOR_HINT   = (70,  70, 110)
 COLOR_DIV    = (50,  50,  90)
+COLOR_ERR    = (255,  80,  80)
+COLOR_OK     = (80,  220,  80)
+
+SPINNER_FRAMES = ["|", "/", "-", "\\"]
 
 PHOTO_INTERVAL_OPTIONS = [1, 5, 12, 24]
 PHOTO_INTERVAL_LABELS  = {1: "1 hr", 5: "5 hrs", 12: "12 hrs", 24: "Daily"}
 
 ITEMS = ["brightness", "night_mode_start", "photo_interval", "update"]
 LABELS = {
-    "brightness":      "Brightness",
+    "brightness":       "Brightness",
     "night_mode_start": "Night Mode",
-    "photo_interval":  "Photo Refresh",
-    "update":          "Update",
+    "photo_interval":   "Photo Refresh",
+    "update":           "Update",
 }
 
 
@@ -53,6 +62,12 @@ class SettingsScreen:
         self._config = self._load_config()
         self._font   = self._load_font(13)
         self._font_b = self._load_font_bold(15)
+
+        # Update-screen state
+        self._updating      = False
+        self._update_action = ""
+        self._update_failed = False
+        self._spinner_tick  = 0
 
         self._apply_brightness()
 
@@ -104,6 +119,10 @@ class SettingsScreen:
     # ── Input ─────────────────────────────────────────────────────────────────
 
     def update(self):
+        if self._updating:
+            self._spinner_tick += 1
+            return  # buttons ignored during update
+
         for btn, name in BUTTON_NAMES.items():
             pressed = self.display.read_button(btn)
             if pressed and not self._prev[btn]:
@@ -159,8 +178,49 @@ class SettingsScreen:
         brightness = self._config.get("brightness", 80)
         self.display.set_backlight(brightness / 100.0)
 
+    # ── Update ────────────────────────────────────────────────────────────────
+
     def _do_update(self):
-        pass  # TODO: implement update
+        if self._updating:
+            return
+        self._updating      = True
+        self._update_action = "Starting..."
+        self._update_failed = False
+        self._spinner_tick  = 0
+
+        def _run():
+            try:
+                proc = subprocess.Popen(
+                    ["bash", _UPDATE_SCRIPT],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    print(f"[Update] {line}")
+                    if line.startswith("STATUS: "):
+                        self._update_action = line[len("STATUS: "):]
+                    elif line == "DONE":
+                        self._update_action = "Restarting..."
+                        main_py = os.path.join(_REPO_ROOT, "main.py")
+                        os.execv(sys.executable, [sys.executable, main_py])
+                    elif line.startswith("FAILED: "):
+                        self._update_action = line[len("FAILED: "):]
+                        self._update_failed = True
+                proc.wait()
+                if proc.returncode != 0 and not self._update_failed:
+                    self._update_action = "Unknown error"
+                    self._update_failed = True
+            except Exception as e:
+                print(f"[Update] Exception: {e}")
+                self._update_action = str(e)
+                self._update_failed = True
+            finally:
+                if self._update_failed:
+                    self._updating = False
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -173,6 +233,31 @@ class SettingsScreen:
             return w
 
     def render(self):
+        if self._updating:
+            self._render_update()
+        else:
+            self._render_settings()
+
+    def _render_update(self):
+        w, h = self.width, self.height
+        d = self.draw
+        d.rectangle((0, 0, w, h), fill=BG)
+
+        spinner = SPINNER_FRAMES[(self._spinner_tick // 4) % len(SPINNER_FRAMES)]
+        title   = f"{spinner}  Updating  {spinner}"
+        tw = self._text_w(title, self._font_b)
+        d.text(((w - tw) // 2, h // 2 - 28), title,
+               font=self._font_b, fill=COLOR_TITLE)
+
+        action = self._update_action
+        if len(action) > 28:
+            action = action[:25] + "..."
+        aw = self._text_w(action, self._font)
+        color = COLOR_ERR if self._update_failed else COLOR_ITEM
+        d.text(((w - aw) // 2, h // 2 - 4), action,
+               font=self._font, fill=color)
+
+    def _render_settings(self):
         w, h = self.width, self.height
         d = self.draw
 
@@ -208,7 +293,8 @@ class SettingsScreen:
 
             value = self._value_str(item)
             if value:
-                val_color = COLOR_VAL_SEL if sel else COLOR_VAL
+                is_err = (item == "update" and self._update_failed)
+                val_color = COLOR_ERR if is_err else (COLOR_VAL_SEL if sel else COLOR_VAL)
                 vw = self._text_w(value, self._font)
                 d.text((w - vw - 14, y + (row_h - 4) // 2 - 7), value,
                        font=self._font, fill=val_color)
@@ -226,4 +312,6 @@ class SettingsScreen:
         if item == "photo_interval":
             hours = self._config.get("photo_interval_hours", 24)
             return PHOTO_INTERVAL_LABELS.get(hours, f"{hours} hrs")
+        if item == "update":
+            return "Failed" if self._update_failed else ""
         return ""
