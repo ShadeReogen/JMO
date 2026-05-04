@@ -1,6 +1,6 @@
 import json
 
-VERSION = "alpha1.0"
+VERSION = "beta1.0"
 
 _CONFIG_PATH = "config.json"
 _data: dict = {}
