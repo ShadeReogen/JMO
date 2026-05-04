@@ -3,6 +3,7 @@ import time
 import math
 import sys
 import os
+import random
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import config as _cfg
 from PIL import ImageFont, ImageDraw, Image
@@ -54,10 +55,18 @@ class SplashScreen:
         self.start_time = time.time()
         self.done       = False
 
+        self._bg_img = self._load_bg()
         self._init_fonts()
         self._layout()
 
     # ── Setup ──────────────────────────────────────────────────────────────────
+
+    def _load_bg(self):
+        startup_dir = os.path.join(os.path.dirname(__file__), "..", "assets", "startup")
+        idx = random.randint(1, 6)
+        path = os.path.join(startup_dir, f"startup{idx}.jpg")
+        img = Image.open(path).convert("RGB")
+        return img.resize((self.width, self.height), Image.LANCZOS)
 
     def _init_fonts(self):
         candidates = [
@@ -166,10 +175,14 @@ class SplashScreen:
 
         elapsed = time.time() - self.start_time
 
-        # Solid fill — no banding
-        self.draw.rectangle((0, 0, self.width, self.height), fill=BG)
-
         global_a = 1.0 - _phase(T_FADE_OUT, T_DONE, elapsed)
+
+        if global_a < 1.0:
+            dark = Image.new("RGB", (self.width, self.height), BG)
+            bg = Image.blend(dark, self._bg_img, global_a)
+        else:
+            bg = self._bg_img
+        self._image.paste(bg, (0, 0))
 
         for ch, ox, oy, color, t_start in self.char_data:
             t    = _clamp((elapsed - t_start) / _ANIM_DUR)
