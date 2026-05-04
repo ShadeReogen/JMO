@@ -38,6 +38,8 @@ SPINNER_FRAMES = ["|", "/", "-", "\\"]
 PHOTO_INTERVAL_OPTIONS = [1, 5, 12, 24]
 PHOTO_INTERVAL_LABELS  = {1: "1 hr", 5: "5 hrs", 12: "12 hrs", 24: "Daily"}
 
+UPDATE_BRANCH_OPTIONS = ["main", "dev"]
+
 ITEMS = ["brightness", "night_mode_start", "photo_interval", "update"]
 LABELS = {
     "brightness":       "Brightness",
@@ -174,6 +176,11 @@ class SettingsScreen:
         elif item == "update":
             if button == "X":
                 self._do_update()
+            elif button == "A":
+                opts = UPDATE_BRANCH_OPTIONS
+                current = self._config.get("update_branch", "main")
+                idx = opts.index(current) if current in opts else 0
+                self._config["update_branch"] = opts[(idx + 1) % len(opts)]
 
     def _apply_brightness(self):
         brightness = self._config.get("brightness", 80)
@@ -191,8 +198,9 @@ class SettingsScreen:
 
         def _run():
             try:
+                branch = self._config.get("update_branch", "main")
                 proc = subprocess.Popen(
-                    ["bash", _UPDATE_SCRIPT],
+                    ["bash", _UPDATE_SCRIPT, branch],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
@@ -314,5 +322,7 @@ class SettingsScreen:
             hours = self._config.get("photo_interval_hours", 24)
             return PHOTO_INTERVAL_LABELS.get(hours, f"{hours} hrs")
         if item == "update":
-            return "Failed" if self._update_failed else ""
+            if self._update_failed:
+                return "Failed"
+            return self._config.get("update_branch", "main")
         return ""

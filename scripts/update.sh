@@ -11,6 +11,7 @@ FAIL_FILE="$REPO_DIR/fail"
 BACKUP="/tmp/jmo_config_backup.json"
 ERR_TMP="/tmp/jmo_update_err"
 BRANCH=""
+TARGET_BRANCH="${1:-}"  # optional branch argument from caller
 
 cd "$REPO_DIR"
 
@@ -43,18 +44,22 @@ git checkout HEAD -- config.json 2>"$ERR_TMP"
 [ $? -ne 0 ] && fail "Cannot reset config.json: $(cat "$ERR_TMP")"
 
 echo "STATUS: Detecting branch..."
-# Ask remote for its HEAD — works without local tracking refs
-BRANCH=$(git ls-remote --symref origin HEAD 2>/dev/null \
-    | grep '^ref:' \
-    | sed 's@^ref: refs/heads/@@; s/[[:space:]].*$//')
+if [ -n "$TARGET_BRANCH" ]; then
+    BRANCH="$TARGET_BRANCH"
+else
+    # Ask remote for its HEAD — works without local tracking refs
+    BRANCH=$(git ls-remote --symref origin HEAD 2>/dev/null \
+        | grep '^ref:' \
+        | sed 's@^ref: refs/heads/@@; s/[[:space:]].*$//')
 
-# Fallback to local branch name
-if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
-    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-fi
-# Last resort
-if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
-    BRANCH="main"
+    # Fallback to local branch name
+    if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
+        BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    fi
+    # Last resort
+    if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
+        BRANCH="main"
+    fi
 fi
 
 echo "STATUS: Fetching ($BRANCH)..."
