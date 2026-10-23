@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import threading
 import time
 from PIL import Image, ImageDraw
 from displayhatmini import DisplayHATMini
+import config
+import wifi
 from screens.splash import SplashScreen
 from screens.menu import MenuScreen
 from screens.settings import SettingsScreen
@@ -47,6 +50,11 @@ def main():
 
     def go_to_memory_lane():
         set_screen(MemoryLaneScreen(draw, width, height, display, on_exit=go_to_menu))
+
+    wanted_wifi = config.get("wifi_profile")
+    if wanted_wifi:
+        threading.Thread(target=wifi.apply_saved, args=(wanted_wifi,),
+                         daemon=True).start()
 
     set_screen(SplashScreen(draw, width, height, go_to_menu))
 

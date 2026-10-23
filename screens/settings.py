@@ -4,9 +4,11 @@ import os
 import subprocess
 import sys
 import threading
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import config as cfg_module
+import wifi
 from PIL import ImageDraw, ImageFont
 from displayhatmini import DisplayHATMini
 
@@ -40,11 +42,12 @@ PHOTO_INTERVAL_LABELS  = {1: "1 hr", 5: "5 hrs", 12: "12 hrs", 24: "Daily"}
 
 UPDATE_BRANCH_OPTIONS = ["main", "dev"]
 
-ITEMS = ["brightness", "night_mode_start", "photo_interval", "update"]
+ITEMS = ["brightness", "night_mode_start", "photo_interval", "wifi", "update"]
 LABELS = {
     "brightness":       "Brightness",
     "night_mode_start": "Night Mode",
     "photo_interval":   "Photo Refresh",
+    "wifi":             "Wi-Fi",
     "update":           "Update",
 }
 
@@ -71,6 +74,14 @@ class SettingsScreen:
         self._update_action = ""
         self._update_failed = False
         self._spinner_tick  = 0
+        self._overlay_title = "Updating"
+
+        # Wi-Fi: saved profiles; _wifi_sel is the highlighted choice
+        self._wifi_profiles = wifi.list_profiles()
+        self._wifi_active   = wifi.active_profile()
+        wanted = self._config.get("wifi_profile") or self._wifi_active
+        self._wifi_sel = (self._wifi_profiles.index(wanted)
+                          if wanted in self._wifi_profiles else 0)
 
         self._apply_brightness()
 
@@ -138,7 +149,10 @@ class SettingsScreen:
             self._sel = (self._sel + 1) % len(ITEMS)
         elif name == "Y":
             self._save_config()
-            self.on_done()
+            if self._wifi_changed():
+                self._do_wifi()
+            else:
+                self.on_done()
         elif name in ("A", "X"):
             self._change(name)
 
@@ -173,6 +187,12 @@ class SettingsScreen:
                 idx = (idx - 1) % len(opts)
             self._config["photo_interval_hours"] = opts[idx]
 
+        elif item == "wifi":
+            n = len(self._wifi_profiles)
+            if n:
+                step = 1 if button == "X" else -1
+                self._wifi_sel = (self._wifi_sel + step) % n
+
         elif item == "update":
             if button == "X":
                 self._do_update()
@@ -185,6 +205,49 @@ class SettingsScreen:
     def _apply_brightness(self):
         brightness = self._config.get("brightness", 80)
         self.display.set_backlight(brightness / 100.0)
+
+    # ── Wi-Fi ─────────────────────────────────────────────────────────────────
+
+    def _wifi_choice(self):
+        if not self._wifi_profiles:
+            return None
+        return self._wifi_profiles[self._wifi_sel]
+
+    def _wifi_changed(self):
+        choice = self._wifi_choice()
+        return choice is not None and choice != self._wifi_active
+
+    def _do_wifi(self):
+        """Switch to the chosen profile; on failure fall back to the old one."""
+        target, previous = self._wifi_choice(), self._wifi_active
+        self._updating      = True
+        self._overlay_title = "Wi-Fi"
+        self._update_action = f"Joining {wifi.label(target)}..."
+        self._update_failed = False
+        self._spinner_tick  = 0
+
+        def _run():
+            ok, msg = wifi.connect(target)
+            print(f"[Wi-Fi] {target}: {ok} {msg}")
+            if ok:
+                self._wifi_active = target
+                self._config["wifi_profile"] = target
+                self._save_config()
+                self._update_action = f"Connected: {wifi.label(target)}"
+            else:
+                self._update_failed = True
+                self._update_action = msg
+                self._config["wifi_profile"] = previous or target
+                self._save_config()
+                if previous:
+                    wifi.connect(previous)
+                self._wifi_sel = (self._wifi_profiles.index(previous)
+                                  if previous in self._wifi_profiles else 0)
+            time.sleep(2.5)
+            self._updating = False
+            self.on_done()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── Update ────────────────────────────────────────────────────────────────
 
@@ -253,7 +316,7 @@ class SettingsScreen:
         d.rectangle((0, 0, w, h), fill=BG)
 
         spinner = SPINNER_FRAMES[(self._spinner_tick // 4) % len(SPINNER_FRAMES)]
-        title   = f"{spinner}  Updating  {spinner}"
+        title   = f"{spinner}  {self._overlay_title}  {spinner}"
         tw = self._text_w(title, self._font_b)
         d.text(((w - tw) // 2, h // 2 - 28), title,
                font=self._font_b, fill=COLOR_TITLE)
@@ -286,7 +349,7 @@ class SettingsScreen:
         d.line((8, 30, w - 8, 30), fill=COLOR_DIV, width=1)
 
         # Items
-        row_h   = 42
+        row_h   = 34
         start_y = 38
 
         for i, item in enumerate(ITEMS):
@@ -321,6 +384,9 @@ class SettingsScreen:
         if item == "photo_interval":
             hours = self._config.get("photo_interval_hours", 24)
             return PHOTO_INTERVAL_LABELS.get(hours, f"{hours} hrs")
+        if item == "wifi":
+            choice = self._wifi_choice()
+            return wifi.label(choice) if choice else "n/a"
         if item == "update":
             if self._update_failed:
                 return "Failed"
