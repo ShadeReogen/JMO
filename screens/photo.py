@@ -7,6 +7,7 @@ Photo refreshes according to config photo_interval_hours.
 Any button press exits back to the menu.
 """
 import io
+import json
 import time
 import threading
 import urllib.request
@@ -16,6 +17,8 @@ from displayhatmini import DisplayHATMini
 
 import config
 
+
+MAX_ATTEMPTS = 3
 
 BUTTON_NAMES = {
     DisplayHATMini.BUTTON_A: "A",
@@ -75,7 +78,12 @@ class PhotoScreen:
         t.start()
 
     def _fetch_photo(self):
-        """Called from background thread: hit edge function, download image."""
+        """Called from background thread: hit edge function, download image.
+
+        A file that can't be decoded is skipped and another random photo is
+        tried straight away (up to MAX_ATTEMPTS) instead of waiting for the
+        60 s error retry.
+        """
         base = self._supabase_url()
         key  = self._supabase_key()
 
@@ -88,35 +96,41 @@ class PhotoScreen:
         endpoint = f"{base}/functions/v1/random-photo"
 
         try:
-            # 1. Ask the edge function for a signed URL
-            req = urllib.request.Request(
-                endpoint,
-                headers={"Authorization": f"Bearer {key}"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                import json
-                data = json.loads(resp.read())
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                filename = "?"
+                try:
+                    # 1. Ask the edge function for a signed URL
+                    req = urllib.request.Request(
+                        endpoint,
+                        headers={"Authorization": f"Bearer {key}"},
+                    )
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        data = json.loads(resp.read())
 
-            signed_url = data.get("url")
-            if not signed_url:
-                raise ValueError("No URL in response")
+                    filename   = data.get("filename", "?")
+                    signed_url = data.get("url")
+                    if not signed_url:
+                        raise ValueError("No URL in response")
 
-            # 2. Download the actual image
-            with urllib.request.urlopen(signed_url, timeout=30) as img_resp:
-                raw = img_resp.read()
+                    # 2. Download the actual image
+                    with urllib.request.urlopen(signed_url, timeout=30) as img_resp:
+                        raw = img_resp.read()
 
-            photo = Image.open(io.BytesIO(raw)).convert("RGB")
+                    photo = Image.open(io.BytesIO(raw)).convert("RGB")
 
-            # 3. Fit to display: scale down keeping aspect ratio, then centre-crop
-            photo = self._fit(photo)
+                    # 3. Fit to display: scale down keeping aspect ratio, then centre-crop
+                    photo = self._fit(photo)
 
-            self._photo      = photo
-            self._last_fetch = time.time()
-            self._error      = False
-            print(f"[PhotoFrame] Loaded: {data.get('filename', '?')}")
+                    self._photo      = photo
+                    self._last_fetch = time.time()
+                    self._error      = False
+                    print(f"[PhotoFrame] Loaded: {filename}")
+                    return
 
-        except Exception as e:
-            print(f"[PhotoFrame] Fetch error: {e}")
+                except Exception as e:
+                    print(f"[PhotoFrame] Fetch error ({filename}, "
+                          f"attempt {attempt}/{MAX_ATTEMPTS}): {e}")
+
             self._error = True
 
         finally:
